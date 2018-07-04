@@ -13,13 +13,16 @@ from tensorflow.contrib.keras.api.keras.backend import resize_images
 class FlowNet(object):
 
     def __init__(self, img_height, img_width, img_depth,  learning_rate):
+        self.img_height = img_height
+        self.img_width = img_width
         self.img_depth = img_depth
         self.learning_rate = learning_rate
 
-        self.img_height = self.proximateMultiple(img_height)
-        self.img_width = self.proximateMultiple(img_width)
+        self.model_in_height = self.proximateMultiple(img_height)
+        self.model_in_width = self.proximateMultiple(img_width)
+        self.model_in_depth = 3
 
-        print('input image resized by (height = %s,' %self.img_height, 'width = %s)' %self.img_width)
+        print('input image resized by (height = %s,' %self.model_in_height, 'width = %s)' %self.model_in_width)
 
     def proximateMultiple(self, value, multiple = 64):
         n = 1
@@ -78,10 +81,14 @@ class FlowNet(object):
     def inference(self, mode = 'simple'):
 
         if mode == 'simple':
-            simple_input = Input(shape=(self.img_height, self.img_width, self.img_depth * 2), name='simple_input')
+            left_image = Input(shape=(self.img_height, self.img_width, self.img_depth), name='left_input')
+            right_image = Input(shape=(self.img_height, self.img_width, self.img_depth), name='right_image')
+            concate_view = concatenate([left_image, right_image], axis = 3, name='concate_view')
+            simple_input = Reshape((self.model_in_height, self.model_in_width, self.model_in_depth * 2), name = 'simple_input')(concate_view)
             prediction = self.FlowNetSimple(simple_input)
+            result = Reshape((self.img_height, self.img_width, 1), name = 'result')(prediction)
 
-            FlowNet = Model(inputs = [simple_input], outputs = [prediction])
+            FlowNet = Model(inputs = [left_image, right_image], outputs = [result])
             opt = Adam(lr=self.learning_rate)
             FlowNet.compile(optimizer=opt, loss='mae')
             FlowNet.summary() 
