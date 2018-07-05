@@ -18,13 +18,17 @@ class FlowNet(object):
         self.img_depth = img_depth
         self.learning_rate = learning_rate
 
-        self.model_in_height = self.proximateMultiple(img_height)
-        self.model_in_width = self.proximateMultiple(img_width)
+        self.model_in_height = self.resize(img_height)
+        self.model_in_width = self.resize(img_width)
         self.model_in_depth = 3
+
+        self.model_out_height = int(self.model_in_height / 4)
+        self.model_out_width = int(self.model_in_width / 4)
+        self.model_out_depth = 1
 
         print('input image resized by (height = %s,' %self.model_in_height, 'width = %s)' %self.model_in_width)
 
-    def proximateMultiple(self, value, multiple = 64):
+    def resize(self, value, multiple = 64):
         n = 1
         condition = False
         diff_before = value
@@ -80,15 +84,14 @@ class FlowNet(object):
 
     def inference(self, mode = 'simple'):
 
-        if mode == 'simple':
-            left_image = Input(shape=(self.img_height, self.img_width, self.img_depth), name='left_input')
-            right_image = Input(shape=(self.img_height, self.img_width, self.img_depth), name='right_image')
-            concate_view = concatenate([left_image, right_image], axis = 3, name='concate_view')
-            simple_input = Reshape((self.model_in_height, self.model_in_width, self.model_in_depth * 2), name = 'simple_input')(concate_view)
-            prediction = self.FlowNetSimple(simple_input)
-            result = Reshape((self.img_height, self.img_width, 1), name = 'result')(prediction)
+        left_image = Input(shape=(self.model_in_height, self.model_in_width, self.model_in_depth), name='left_input')
+        right_image = Input(shape=(self.model_in_height, self.model_in_width, self.model_in_depth), name='right_image')
 
-            FlowNet = Model(inputs = [left_image, right_image], outputs = [result])
+        if mode == 'simple':
+            concate_view = concatenate([left_image, right_image], axis = 3, name='concate_view')
+            prediction = self.FlowNetSimple(concate_view)
+
+            FlowNet = Model(inputs = [left_image, right_image], outputs = [prediction])
             opt = Adam(lr=self.learning_rate)
             FlowNet.compile(optimizer=opt, loss='mae')
             FlowNet.summary() 

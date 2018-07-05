@@ -1,14 +1,16 @@
 import numpy as np
+from random import shuffle
 import imageio
 import zipfile
 import tarfile
-from random import shuffle
 import os
 import sys
 import urllib.request
 
 from tensorflow.python.keras.preprocessing.image import load_img
 from tensorflow.python.keras.preprocessing.image import img_to_array
+from tensorflow.python.keras.preprocessing.image import array_to_img
+from PIL import Image
 
 class Scene_Flow_disparity(object):
     '''
@@ -147,51 +149,54 @@ class Scene_Flow_disparity(object):
 
             return data 
 
-    def groundTruth(self, image_file_path):
+    def groundTruth(self, image_file_path, mode = 'disparity'):
         
         tmp = image_file_path.replace(".png", ".pfm")
 
-        if 'driving__frames_cleanpass' in image_file_path:
-            tmp1 = tmp.replace("driving__frames_cleanpass", "driving__disparity")
-            tmp = tmp1.replace("frames_cleanpass", "disparity")
-        elif 'driving__frames_finalpass' in image_file_path:
-            tmp1 = tmp.replace("driving__frames_finalpass", "driving__disparity")
-            tmp = tmp1.replace("frames_finalpass", "disparity")
-        elif 'flyingthings3d__frames_cleanpass' in image_file_path:
-            tmp1 = tmp.replace("flyingthings3d__frames_cleanpass", "flyingthings3d__disparity")
-            tmp = tmp1.replace("frames_cleanpass", "disparity")
-        elif 'flyingthings3d__frames_finalpass' in image_file_path:
-            tmp1 = tmp.replace("flyingthings3d__frames_finalpass", "flyingthings3d__disparity")
-            tmp = tmp1.replace("frames_finalpass", "disparity")
-        elif 'monkaa__frames_cleanpass' in image_file_path:
-            tmp1 = tmp.replace("monkaa__frames_cleanpass", "monkaa__disparity")
-            tmp = tmp1.replace("frames_cleanpass", "disparity")
-        elif 'monkaa__frames_finalpass' in image_file_path:
-            tmp1 = tmp.replace("monkaa__frames_finalpass", "monkaa__disparity")
-            tmp = tmp1.replace("frames_finalpass", "disparity")
+        if mode == 'disparity':
+            if 'driving__frames_cleanpass' in image_file_path:
+                tmp1 = tmp.replace("driving__frames_cleanpass", "driving__disparity")
+                tmp = tmp1.replace("frames_cleanpass", "disparity")
+            elif 'driving__frames_finalpass' in image_file_path:
+                tmp1 = tmp.replace("driving__frames_finalpass", "driving__disparity")
+                tmp = tmp1.replace("frames_finalpass", "disparity")
+            elif 'flyingthings3d__frames_cleanpass' in image_file_path:
+                tmp1 = tmp.replace("flyingthings3d__frames_cleanpass", "flyingthings3d__disparity")
+                tmp = tmp1.replace("frames_cleanpass", "disparity")
+            elif 'flyingthings3d__frames_finalpass' in image_file_path:
+                tmp1 = tmp.replace("flyingthings3d__frames_finalpass", "flyingthings3d__disparity")
+                tmp = tmp1.replace("frames_finalpass", "disparity")
+            elif 'monkaa__frames_cleanpass' in image_file_path:
+                tmp1 = tmp.replace("monkaa__frames_cleanpass", "monkaa__disparity")
+                tmp = tmp1.replace("frames_cleanpass", "disparity")
+            elif 'monkaa__frames_finalpass' in image_file_path:
+                tmp1 = tmp.replace("monkaa__frames_finalpass", "monkaa__disparity")
+                tmp = tmp1.replace("frames_finalpass", "disparity")
 
-        groundTruth = self.read_pfm(fpath = tmp)
-        return groundTruth
+            groundTruth = self.read_pfm(fpath = tmp)
+            return groundTruth
 
-    def data(self, image_file_path, mode = 'left'):
+    def data(self, image_file_path, image_size = (540, 960), truth_size = (540, 960), mode = 'left'):
 
         if mode == 'left':
             if '.png' in image_file_path:
                 if 'left' in image_file_path:
-
-                    l_img = load_img(path = image_file_path, grayscale = False, interpolation = 'bicubic')
-                    r_img = load_img(path = image_file_path.replace("left", "right"), grayscale = False, interpolation = 'bicubic')
+                    l_img = load_img(path = image_file_path, grayscale = False, target_size = image_size, interpolation = 'bicubic')
+                    r_img = load_img(path = image_file_path.replace("left", "right"), grayscale = False, target_size = image_size, interpolation = 'bicubic')
 
                     left_image = img_to_array(l_img)
                     right_image = img_to_array(r_img)
-                    ground_truth = self.groundTruth(image_file_path)
+                    
+                    ground_truth = array_to_img(self.groundTruth(image_file_path)[:,:,np.newaxis])
+                    resized_truth = ground_truth.resize((truth_size[-1], truth_size[0]))
+                    ground_truth = img_to_array(resized_truth)
 
                     return left_image, right_image, ground_truth
                 else:
-                    print('no left path')
+                    # print('no left path')
                     return
             else:  
-                print('no png path')
+                # print('no png path')
                 return    
 
 class Light_Field_Dataset(object):
