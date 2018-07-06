@@ -2,7 +2,7 @@
 import tensorflow as tf
 from tensorflow.contrib.keras.api.keras.optimizers import RMSprop, Adam
 from tensorflow.contrib.keras.api.keras.models import Model, Sequential
-from tensorflow.contrib.keras.api.keras.layers import Input , Activation
+from tensorflow.contrib.keras.api.keras.layers import Input , Activation, Lambda
 from tensorflow.contrib.keras.api.keras.layers import Conv2D, Reshape, Conv2DTranspose
 from tensorflow.contrib.keras.api.keras.layers import Dropout,BatchNormalization
 from tensorflow.contrib.keras.api.keras.layers import concatenate, MaxPooling2D
@@ -43,7 +43,7 @@ class FlowNet(object):
                 condition = True
                 return multiple * (n - 1)
             n += 1
-    
+
     def FlowNetSimple(self, input): 
         ''' convolution layers : Conv1 - Conv2 - Conv3 - Conv3_1 - Conv4 - Conv4_1 - Conv5 - Conv5_1 - Conv6 '''
         Conv1 = Conv2D(64, (7, 7), (2, 2), padding='same', activation='relu', name='Conv1')(input)
@@ -57,7 +57,6 @@ class FlowNet(object):
         Conv6 = Conv2D(1024, (3, 3), (2, 2), padding='same', activation='relu', name='Conv6')(Conv5_1)
         
         ''' deconvolution layers : deconv5(flow5) - deconv4(flow4) - deconv3(flow3) - deconv2 - prediction '''
-        #deconv5 = conv2d_transpose(Conv6, (3, 3), tf.shape(Conv5_1), (2, 2), padding='same')
         deconv5 = Conv2DTranspose(512, (3, 3), (2, 2), padding='same', activation='relu', name='deconv5')(Conv6)
         concat1 = concatenate([deconv5, Conv5_1], axis = 3, name='concat1')
 
@@ -82,6 +81,71 @@ class FlowNet(object):
 
         return prediction
 
+    def FlowNetCorr(self, input_left, input_right):
+
+        left_Conv1 = Conv2D(64, (7, 7), (2, 2), padding='same', activation='relu', name='left_Conv1')(input_left)
+        left_Conv2 = Conv2D(128, (5, 5), (2, 2), padding='same', activation='relu', name='left_Conv2')(left_Conv1)
+        left_Conv3 = Conv2D(256, (5, 5), (2, 2), padding='same', activation='relu', name='left_Conv3')(left_Conv2)
+
+        right_Conv1 = Conv2D(64, (7, 7), (2, 2), padding='same', activation='relu', name='right_Conv1')(input_right)
+        right_Conv2 = Conv2D(128, (5, 5), (2, 2), padding='same', activation='relu', name='right_Conv2')(right_Conv1)
+        right_Conv3 = Conv2D(256, (5, 5), (2, 2), padding='same', activation='relu', name='right_Conv3')(right_Conv2)
+
+        layer_list = []
+        dotLayer = Lambda(lambda x: tf.reduce_sum(tf.multiply(x[0],x[1]), axis = -1, keepdims = True), name = 'dotLayer')
+        # https://github.com/jgorgenucsd/corr_tf/blob/master/flownet.py#L59
+        for i in range(-20, 20 + 2, 2):
+            for j in range(-20, 20 + 2, 2):
+                slice_height = int(self.model_in_height / 8) - abs(j)
+                slice_width = int(self.model_in_width / 8) - abs(i)
+                start_y = abs(j) if j < 0 else 0
+                start_x = abs(i) if i < 0 else 0
+                top_pad    = j if (j>0) else 0
+                bottom_pad = start_y
+                left_pad   = i if (i>0) else 0
+                right_pad  = start_x
+                
+                gather_layer = Lambda(lambda x: tf.pad(tf.slice(x, begin=[0, start_y, start_x,0], size=[-1, slice_height, slice_width, -1]),
+                                                        paddings=[[0,0], [top_pad,bottom_pad], [left_pad,right_pad], [0,0]]),
+                                        name='gather_{}_{}'.format(i, j))(right_Conv3)
+                current_layer = dotLayer([left_Conv3,gather_layer])
+                layer_list.append(current_layer)
+        Corr_441 = Lambda(lambda x: tf.concat(x, 3),name='Corr_441')(layer_list)
+        Conv_redir = Conv2D(32, (1, 1), (1, 1), padding='same', activation='relu', name='Conv_redir')(left_Conv3)
+        Corr = concatenate([Corr_441, Conv_redir], axis = 3, name='Corr')
+
+        Conv3_1 = Conv2D(256, (3, 3), padding='same', activation='relu', name='Conv3_1')(Corr)
+        Conv4 = Conv2D(512, (3, 3), (2, 2), padding='same', activation='relu', name='Conv4')(Conv3_1)
+        Conv4_1 = Conv2D(512, (3, 3), padding='same', activation='relu', name='Conv4_1')(Conv4)
+        Conv5 = Conv2D(512, (3, 3), (2, 2), padding='same', activation='relu', name='Conv5')(Conv4_1)
+        Conv5_1 = Conv2D(512, (3, 3), padding='same', activation='relu', name='Conv5_1')(Conv5)
+        Conv6 = Conv2D(1024, (3, 3), (2, 2), padding='same', activation='relu', name='Conv6')(Conv5_1)
+        
+        ''' deconvolution layers : deconv5(flow5) - deconv4(flow4) - deconv3(flow3) - deconv2 - prediction '''
+        deconv5 = Conv2DTranspose(512, (3, 3), (2, 2), padding='same', activation='relu', name='deconv5')(Conv6)
+        concat1 = concatenate([deconv5, Conv5_1], axis = 3, name='concat1')
+
+        flow5 = Conv2D(2, (3, 3), padding='same', name='flow5')(concat1)
+        flow5_up = Conv2DTranspose(2, (3, 3), (2, 2), padding='same', name='flow5_up')(flow5)
+
+        deconv4 = Conv2DTranspose(256, (3, 3), (2, 2), padding='same', activation='relu', name='deconv4')(concat1)
+        concat2 = concatenate([deconv4, Conv4_1, flow5_up], axis = 3, name='concat2')
+
+        flow4 = Conv2D(1, (3, 3), padding='same', name='flow4')(concat2)
+        flow4_up = Conv2DTranspose(2, (3, 3), (2, 2), padding='same', name='flow4_up')(flow4)
+
+        deconv3 = Conv2DTranspose(128, (5, 5), (2, 2), padding='same', activation='relu', name='deconv3')(concat2)
+        concat3 = concatenate([deconv3, Conv3_1, flow4_up], axis = 3, name='concat3')
+
+        flow3 = Conv2D(1, (3, 3), padding='same', name='flow3')(concat3)
+        flow3_up = Conv2DTranspose(2, (3, 3), (2, 2), padding='same', name='flow3_up')(flow3)
+
+        deconv2 = Conv2DTranspose(64, (5, 5), (2, 2), padding='same', activation='relu', name='deconv2')(concat3)
+        concat4 = concatenate([deconv2, left_Conv2, flow3_up], axis = 3, name='concat4')
+        prediction = Conv2D(1, (3, 3), padding='same', name='prediction')(concat4)
+
+        return prediction
+
     def inference(self, mode = 'simple'):
 
         left_image = Input(shape=(self.model_in_height, self.model_in_width, self.model_in_depth), name='left_input')
@@ -90,6 +154,16 @@ class FlowNet(object):
         if mode == 'simple':
             concate_view = concatenate([left_image, right_image], axis = 3, name='concate_view')
             prediction = self.FlowNetSimple(concate_view)
+
+            FlowNet = Model(inputs = [left_image, right_image], outputs = [prediction])
+            opt = Adam(lr=self.learning_rate)
+            FlowNet.compile(optimizer=opt, loss='mae')
+            FlowNet.summary() 
+            
+            return FlowNet
+
+        if mode == 'correlation':
+            prediction = self.FlowNetCorr(left_image, right_image)
 
             FlowNet = Model(inputs = [left_image, right_image], outputs = [prediction])
             opt = Adam(lr=self.learning_rate)

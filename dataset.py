@@ -176,7 +176,7 @@ class Scene_Flow_disparity(object):
             groundTruth = self.read_pfm(fpath = tmp)
             return groundTruth
 
-    def data(self, image_file_path, image_size = (540, 960), truth_size = (540, 960), mode = 'left'):
+    def data(self, image_file_path, image_size = (540, 960), truth_size = (540, 960), mode = 'left', T_mode = 'disparity'):
 
         if mode == 'left':
             if '.png' in image_file_path:
@@ -187,7 +187,7 @@ class Scene_Flow_disparity(object):
                     left_image = img_to_array(l_img)
                     right_image = img_to_array(r_img)
                     
-                    ground_truth = array_to_img(self.groundTruth(image_file_path)[:,:,np.newaxis])
+                    ground_truth = array_to_img(self.groundTruth(image_file_path, T_mode)[:,:,np.newaxis])
                     resized_truth = ground_truth.resize((truth_size[-1], truth_size[0]))
                     ground_truth = img_to_array(resized_truth)
 
