@@ -178,7 +178,7 @@ class DispNet(object):
 
             DispNet = Model(inputs = [left_image, right_image], outputs = loss_list)
             opt = Adam(lr=self.learning_rate)
-            DispNet.compile(optimizer=opt, loss='mae', loss_weight=[1/2, 1/4, 1/8, 1/16, 1/32, 1/32])
+            DispNet.compile(optimizer=opt, loss='mae', loss_weights=[1/2, 1/4, 1/8, 1/16, 1/32, 1/32])
             DispNet.summary() 
             
             return DispNet
@@ -188,7 +188,7 @@ class DispNet(object):
 
             DispNet = Model(inputs = [left_image, right_image], outputs = loss_list)
             opt = Adam(lr=self.learning_rate)
-            DispNet.compile(optimizer=opt, loss='mae', loss_weight=[1/2, 1/4, 1/8, 1/16, 1/32, 1/32])
+            DispNet.compile(optimizer=opt, loss='mae', loss_weights=[1/2, 1/4, 1/8, 1/16, 1/32, 1/32])
             DispNet.summary() 
             
             return DispNet
