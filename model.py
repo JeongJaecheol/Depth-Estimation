@@ -1,12 +1,160 @@
 # tensorflow keras
+import numpy as np
 import tensorflow as tf
-from tensorflow.contrib.keras.api.keras.optimizers import RMSprop, Adam
-from tensorflow.contrib.keras.api.keras.models import Model, Sequential
-from tensorflow.contrib.keras.api.keras.layers import Input , Activation, Lambda
-from tensorflow.contrib.keras.api.keras.layers import Conv2D, Reshape, Conv2DTranspose
-from tensorflow.contrib.keras.api.keras.layers import Dropout,BatchNormalization
-from tensorflow.contrib.keras.api.keras.layers import concatenate, MaxPooling2D
-from tensorflow.contrib.keras.api.keras.backend import resize_images
+import tensorflow.contrib.keras.api.keras.backend as K
+from tensorflow.python.keras.utils import multi_gpu_model
+from tensorflow.python.keras.models import Model, Sequential
+from tensorflow.python.keras.layers import Input, Reshape, Permute, Lambda
+from tensorflow.python.keras.layers import Add, add, multiply
+from tensorflow.python.keras.layers import Conv2D, Conv2DTranspose
+from tensorflow.python.keras.layers import Conv3D, Conv3DTranspose
+from tensorflow.python.keras.layers import Activation, Dropout, BatchNormalization
+from tensorflow.python.keras.layers import concatenate, MaxPooling2D
+from tensorflow.python.keras.optimizers import RMSprop, Adam
+
+class GCNet(object):
+    def __init__(self, img_height, img_width, img_depth, disp_range, learning_rate, num_of_gpu):
+        self.img_height = img_height
+        self.img_width = img_width
+        self.img_depth = img_depth
+        self.disp_range = disp_range
+        self.learning_rate = learning_rate
+        self.num_of_gpu = num_of_gpu
+
+        self.model_in_height = self.resize(img_height)
+        self.model_in_width = self.resize(img_width)
+        self.model_in_depth = 3
+
+        print('input image resized by (height = %s,' %self.model_in_height, 'width = %s)' %self.model_in_width)
+
+    def resize(self, value, multiple = 32):
+        n = 1
+        condition = False
+
+        while not condition:
+            if (multiple * n) <= value:
+                n += 1
+            else:
+                condition = True
+                return multiple * (n - 1)
+
+    def SoftArgMax(self, x, height, width, disp_range):
+        tmp = tf.squeeze(x, squeeze_dims=-1)
+        softmax = tf.nn.softmax(-tmp)
+        disp_mat = tf.constant(list(map(lambda x: x, range(1, 192+1, 1))), shape=(192, 512, 960))
+        disp_mat = tf.cast(disp_mat, tf.float32)
+        result = tf.multiply(softmax, disp_mat)
+        result = tf.reduce_sum(result, axis = 1)
+        return result
+
+    def CostVolume(self, inputs, max_d):
+        left_tensor, right_tensor = inputs
+        shape = right_tensor.shape
+        right_tensor = K.spatial_2d_padding(right_tensor, padding=((0, 0), (max_d, 0)))
+        disparity_costs = []
+        for d in reversed(range(max_d)):
+            left_tensor_slice = left_tensor
+            right_tensor_slice = tf.slice(right_tensor, begin = [0, 0, d, 0], size = [-1, -1, shape[2], -1])
+            cost = K.concatenate([left_tensor_slice, right_tensor_slice], axis = 3)
+            disparity_costs.append(cost)
+        cost_volume = K.stack(disparity_costs, axis = 1)
+        return cost_volume
+
+    def Unaryfeatures(self, input):
+        layer1 = Conv2D(32, (5, 5), (2, 2), padding='same', activation='relu')(input)
+        layer2 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(layer1)
+        layer3 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(layer2)        
+        short_cut1 = add([layer1, layer3])
+
+        layer4 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(short_cut1)
+        layer5 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(layer4)
+        short_cut2 = add([layer4, layer5])
+        layer6 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(short_cut2)
+        layer7 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(layer6)
+        short_cut3 = add([layer6, layer7])
+        layer8 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(short_cut3)
+        layer9 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(layer8)
+        short_cut4 = add([layer8, layer9])
+        layer10 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(short_cut4)
+        layer11 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(layer10)
+        short_cut5 = add([layer10, layer11])
+        layer12 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(short_cut5)
+        layer13 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(layer12)
+        short_cut6 = add([layer12, layer13])
+        layer14 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(short_cut6)
+        layer15 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(layer14)
+        short_cut7 = add([layer14, layer15])
+        layer16 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(short_cut7)
+        layer17 = Conv2D(32, (3, 3), (1, 1), padding='same', activation='relu')(layer16)
+        short_cut8 = add([layer16, layer17])
+        
+        layer18 = Conv2D(32, (3, 3), (1, 1), padding='same')(short_cut8)
+
+        return layer18
+
+    def LearningRegularization(self, input):
+        layer19 = Conv3D(32, (3, 3, 3), (1, 1, 1), padding='same', activation='relu')(input)
+        layer20 = Conv3D(32, (3, 3, 3), (1, 1, 1), padding='same', activation='relu')(layer19)
+        layer21 = Conv3D(64, (3, 3, 3), (2, 2, 2), padding='same', activation='relu')(layer20)
+        layer22 = Conv3D(64, (3, 3, 3), (1, 1, 1), padding='same', activation='relu')(layer21)
+        layer23 = Conv3D(64, (3, 3, 3), (1, 1, 1), padding='same', activation='relu')(layer22)
+        layer24 = Conv3D(64, (3, 3, 3), (2, 2, 2), padding='same', activation='relu')(layer23)
+        layer25 = Conv3D(64, (3, 3, 3), (1, 1, 1), padding='same', activation='relu')(layer24)
+        layer26 = Conv3D(64, (3, 3, 3), (1, 1, 1), padding='same', activation='relu')(layer25)
+        layer27 = Conv3D(64, (3, 3, 3), (2, 2, 2), padding='same', activation='relu')(layer26)
+        layer28 = Conv3D(64, (3, 3, 3), (1, 1, 1), padding='same', activation='relu')(layer27)
+        layer29 = Conv3D(64, (3, 3, 3), (1, 1, 1), padding='same', activation='relu')(layer28)
+        layer30 = Conv3D(128, (3, 3, 3), (2, 2, 2), padding='same', activation='relu')(layer29)
+        layer31 = Conv3D(128, (3, 3, 3), (1, 1, 1), padding='same', activation='relu')(layer30)
+        layer32 = Conv3D(128, (3, 3, 3), (1, 1, 1), padding='same', activation='relu')(layer31)
+
+        layer33 = Conv3DTranspose(64, (3, 3, 3), (2, 2, 2), padding='same', activation='relu')(layer32)
+        short_cut1 = add([layer29, layer33])
+        layer34 = Conv3DTranspose(64, (3, 3, 3), (2, 2, 2), padding='same', activation='relu')(short_cut1)
+        short_cut2 = add([layer26, layer34])
+        layer35 = Conv3DTranspose(64, (3, 3, 3), (2, 2, 2), padding='same', activation='relu')(short_cut2)
+        short_cut3 = add([layer23, layer35])
+        layer36 = Conv3DTranspose(32, (3, 3, 3), (2, 2, 2), padding='same', activation='relu')(short_cut3)
+        short_cut4 = add([layer20, layer36])
+        layer37 = Conv3DTranspose(1, (3, 3, 3), (2, 2, 2), padding='same')(short_cut4)
+
+        return Lambda(self.SoftArgMax, 
+                        arguments = {'height':self.model_in_height, 'width':self.model_in_width, 'disp_range':self.disp_range}, 
+                        )(layer37)
+
+    def inference(self):      
+        input_shape = (self.model_in_height, self.model_in_width, self.img_depth)
+        l_img = Input(shape = input_shape, dtype = "float32", name='l_img')
+        r_img = Input(shape = input_shape, dtype = "float32", name='r_img')
+        
+        input_img = Input(shape = input_shape, dtype = "float32", name='l_img')
+        feature = self.Unaryfeatures(input_img)
+        Unaryfeatures = Model(inputs = input_img, outputs = feature)
+
+        l_feature = Unaryfeatures(l_img)
+        r_feature = Unaryfeatures(r_img) 
+
+        unifeatures = [l_feature, r_feature]   
+        cv_l = Lambda(self.CostVolume, arguments = {'max_d':(int)(self.disp_range / 2)}, name='CostVolume_left')(unifeatures)  
+        unifeatures = [r_feature, l_feature]
+        cv_r = Lambda(self.CostVolume, arguments = {'max_d':(int)(self.disp_range / 2)}, name='CostVolume_right')(unifeatures)
+        
+        input_costVolume = Input(shape = ((int)(self.disp_range / 2), (int)(self.model_in_height / 2), (int)(self.model_in_width / 2), 64), dtype = "float32", name='l_img')
+        disp_map = self.LearningRegularization(input_costVolume) 
+        LearningRegularization = Model(inputs = input_costVolume, outputs = disp_map) 
+
+        l_disp_map = LearningRegularization(cv_l)
+        r_disp_map = LearningRegularization(cv_r)
+
+        GCNet = Model(inputs = [l_img , r_img], outputs = [l_disp_map, r_disp_map])
+
+        opt = RMSprop(lr = self.learning_rate, rho = 0.9, epsilon = 0.00000001, decay = 0.0)
+        GCNet.compile(optimizer = opt, loss = "mean_absolute_error")
+        if (self.num_of_gpu > 1):
+            GCNet = multi_gpu_model(GCNet, gpus = self.num_of_gpu)
+        GCNet.summary() 
+
+        return GCNet
 
 class DispNet(object):
     """
