@@ -13,7 +13,7 @@ from tensorflow.python.keras.layers import concatenate, MaxPooling2D
 from tensorflow.python.keras.optimizers import RMSprop, Adam
 
 class GCNet(object):
-    def __init__(self, img_height, img_width, img_depth, disp_range, learning_rate, num_of_gpu):
+    def __init__(self, img_height, img_width, img_depth, disp_range, learning_rate, num_of_gpu = 1):
         self.img_height = img_height
         self.img_width = img_width
         self.img_depth = img_depth
@@ -122,7 +122,7 @@ class GCNet(object):
                         arguments = {'height':self.model_in_height, 'width':self.model_in_width, 'disp_range':self.disp_range}, 
                         )(layer37)
 
-    def inference(self):      
+    def inference(self):
         input_shape = (self.model_in_height, self.model_in_width, self.img_depth)
         l_img = Input(shape = input_shape, dtype = "float32", name='l_img')
         r_img = Input(shape = input_shape, dtype = "float32", name='r_img')
@@ -165,11 +165,12 @@ class DispNet(object):
     https://github.com/fedor-chervinskii/dispflownet-tf/blob/master/dispnet.py
     """
 
-    def __init__(self, img_height, img_width, img_depth,  learning_rate):
+    def __init__(self, img_height, img_width, img_depth,  learning_rate, num_of_gpu=1):
         self.img_height = img_height
         self.img_width = img_width
         self.img_depth = img_depth
         self.learning_rate = learning_rate
+        self.num_of_gpu = num_of_gpu
 
         self.model_in_height = self.resize(img_height)
         self.model_in_width = self.resize(img_width)
@@ -256,10 +257,10 @@ class DispNet(object):
 
         max_disp = 40
         corr_tensors = []
-        for i in range(-max_disp, 0, 1):
-            shifted = Lambda(lambda x: tf.pad(tf.slice(x, [0]*4, [-1, -1, x.shape[2].value + i, -1]),
-                            [[0, 0], [0, 0], [-i, 0], [0, 0]], "CONSTANT"), name='shifted_{}_0'.format(i))(right_Conv2)
-            corr = Lambda(lambda x: tf.reduce_mean(tf.multiply(x[0], x[1]), axis=3), name='reduce_mean_{}_0'.format(i))([shifted, left_Conv2])
+        for i in range(max_disp, 0, -1):
+            shifted = Lambda(lambda x: tf.pad(tf.slice(x, [0]*4, [-1, -1, x.shape[2].value - i, -1]),
+                            [[0, 0], [0, 0], [i, 0], [0, 0]], "CONSTANT"), name='shifted_{}_0'.format(-i))(right_Conv2)
+            corr = Lambda(lambda x: tf.reduce_mean(tf.multiply(x[0], x[1]), axis=3), name='reduce_mean_{}_0'.format(-i))([shifted, left_Conv2])
             corr_tensors.append(corr)
         for i in range(max_disp + 1):
             shifted = Lambda(lambda x: tf.pad(tf.slice(x, [0, 0, i, 0], [-1]*4),
@@ -327,6 +328,8 @@ class DispNet(object):
             DispNet = Model(inputs = [left_image, right_image], outputs = loss_list)
             opt = Adam(lr=self.learning_rate)
             DispNet.compile(optimizer=opt, loss='mae', loss_weights=[1/2, 1/4, 1/8, 1/16, 1/32, 1/32])
+            if (self.num_of_gpu > 1):
+                DispNet = multi_gpu_model(DispNet, gpus = self.num_of_gpu)
             DispNet.summary() 
             
             return DispNet
@@ -335,8 +338,11 @@ class DispNet(object):
             loss_list = self.DispNetCorr(left_image, right_image)
 
             DispNet = Model(inputs = [left_image, right_image], outputs = loss_list)
+            #DispNet = multi_gpu_model(DispNet, gpus=2)
             opt = Adam(lr=self.learning_rate)
             DispNet.compile(optimizer=opt, loss='mae', loss_weights=[1/2, 1/4, 1/8, 1/16, 1/32, 1/32])
+            if (self.num_of_gpu > 1):
+                DispNet = multi_gpu_model(DispNet, gpus = self.num_of_gpu)
             DispNet.summary() 
             
             return DispNet
@@ -347,11 +353,12 @@ class FlowNet(object):
     https://github.com/jgorgenucsd/corr_tf/blob/master/flownet.py#L59
     """
 
-    def __init__(self, img_height, img_width, img_depth,  learning_rate):
+    def __init__(self, img_height, img_width, img_depth,  learning_rate, num_of_gpu=1):
         self.img_height = img_height
         self.img_width = img_width
         self.img_depth = img_depth
         self.learning_rate = learning_rate
+        self.num_of_gpu = num_of_gpu
 
         self.model_in_height = self.resize(img_height)
         self.model_in_width = self.resize(img_width)
@@ -493,6 +500,8 @@ class FlowNet(object):
             FlowNet = Model(inputs = [left_image, right_image], outputs = [prediction])
             opt = Adam(lr=self.learning_rate)
             FlowNet.compile(optimizer=opt, loss='mae')
+            if (self.num_of_gpu > 1):
+                DispNet = multi_gpu_model(DispNet, gpus = self.num_of_gpu)
             FlowNet.summary() 
             
             return FlowNet
@@ -503,6 +512,8 @@ class FlowNet(object):
             FlowNet = Model(inputs = [left_image, right_image], outputs = [prediction])
             opt = Adam(lr=self.learning_rate)
             FlowNet.compile(optimizer=opt, loss='mae')
+            if (self.num_of_gpu > 1):
+                DispNet = multi_gpu_model(DispNet, gpus = self.num_of_gpu)
             FlowNet.summary() 
             
             return FlowNet
