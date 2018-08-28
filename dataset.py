@@ -1,5 +1,4 @@
 import numpy as np
-from random import shuffle
 import imageio
 import zipfile
 import tarfile
@@ -44,7 +43,6 @@ class Scene_Flow_disparity(object):
             filename = url.split('/')[-1]
             self.check_data_dir_path(filename)
         
-        shuffle(self.data_paths)
         print("complete loading Scene Flow Datasets")
 
     def download_and_extract(self, url):
@@ -80,7 +78,7 @@ class Scene_Flow_disparity(object):
 
         for (path, dir, files) in os.walk(self.dataset_path + '/' + filename.split('.')[0] + '/'):
             for filename_ in files:
-                self.data_paths.append(path.replace("\\", "/") + '/' + filename_)
+                self.data_paths.append(path.replace("\\", "/").replace('//', '/') + '/' + filename_)
 
     def _get_next_line(self, f):
         next_line = f.readline().decode('utf-8').rstrip()
@@ -197,8 +195,8 @@ class Scene_Flow_disparity(object):
                     return
             else:  
                 # print('no png path')
-                return    
-
+                return
+    
 class Light_Field_Dataset(object):
     '''
     4D Light Field Dataset
