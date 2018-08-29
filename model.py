@@ -433,26 +433,32 @@ class FlowNet(object):
         right_Conv2 = Conv2D(128, (5, 5), (2, 2), padding='same', activation='relu', name='right_Conv2')(right_Conv1)
         right_Conv3 = Conv2D(256, (5, 5), (2, 2), padding='same', activation='relu', name='right_Conv3')(right_Conv2)
 
-        max_disp = 10
-        layer_list = []
-        dotLayer = Lambda(lambda x: tf.reduce_sum(tf.multiply(x[0],x[1]), axis = -1, keepdims = True), name = 'dotLayer')
-        for i in range(-2 * max_disp, 2 * max_disp + 2, 2):
-            for j in range(-2 * max_disp, 2 * max_disp + 2, 2):
-                slice_height = int(self.model_in_height / 8) - abs(j)
-                slice_width = int(self.model_in_width / 8) - abs(i)
-                start_y = abs(j) if j < 0 else 0
-                start_x = abs(i) if i < 0 else 0
-                top_pad    = j if (j>0) else 0
-                bottom_pad = start_y
-                left_pad   = i if (i>0) else 0
-                right_pad  = start_x
-                
-                gather_layer = Lambda(lambda x: tf.pad(tf.slice(x, begin=[0, start_y, start_x,0], size=[-1, slice_height, slice_width, -1]),
-                                                        paddings=[[0,0], [top_pad,bottom_pad], [left_pad,right_pad], [0,0]]),
-                                        name='gather_{}_{}'.format(i, j))(right_Conv3)
-                current_layer = dotLayer([left_Conv3,gather_layer])
-                layer_list.append(current_layer)
-        Corr_441 = Lambda(lambda x: tf.concat(x, 3),name='Corr_441')(layer_list)
+        def get_padded_stride(b,displacement_x,displacement_y,height_8,width_8):
+            slice_height = (int)(height_8 - abs(displacement_y))
+            slice_width = (int)(width_8 - abs(displacement_x))
+            start_y = abs(displacement_y) if displacement_y < 0 else 0
+            start_x = abs(displacement_x) if displacement_x < 0 else 0
+            top_pad    = displacement_y if (displacement_y>0) else 0
+            bottom_pad = start_y
+            left_pad   = displacement_x if (displacement_x>0) else 0
+            right_pad  = start_x
+            
+            gather_layer = Lambda(lambda x: tf.pad(tf.slice(x,begin=[0,start_y,start_x,0],size=[-1,slice_height,slice_width,-1]),
+                                                            paddings=[[0,0],[top_pad,bottom_pad],[left_pad,right_pad],[0,0]]),
+                                                    name='gather_{}_{}'.format(displacement_x,displacement_y))(b)
+            return gather_layer
+
+        def correlation_layer(conv3_pool_l,conv3_pool_r,max_displacement=20,stride2=2,height_8=self.model_in_height/8,width_8=self.model_in_width/8):
+            layer_list = []
+            dotLayer = Lambda(lambda x: tf.reduce_sum(tf.multiply(x[0],x[1]),axis=-1,keep_dims=True),name = 'Dot')
+            for i in range(-max_displacement, max_displacement+stride2,stride2):
+                for j in range(-max_displacement, max_displacement+stride2,stride2):
+                    slice_b = get_padded_stride(conv3_pool_r,i,j,height_8,width_8)
+                    current_layer = dotLayer([conv3_pool_l,slice_b])
+                    layer_list.append(current_layer)
+            return Lambda(lambda x: tf.concat(x, 3),name='441_output_concatenation')(layer_list)
+
+        Corr_441 = correlation_layer(left_Conv3, right_Conv3)
         Conv_redir = Conv2D(32, (1, 1), (1, 1), padding='same', activation='relu', name='Conv_redir')(left_Conv3)
         Corr = concatenate([Corr_441, Conv_redir], axis = 3, name='Corr')
 
@@ -501,7 +507,7 @@ class FlowNet(object):
             opt = Adam(lr=self.learning_rate)
             FlowNet.compile(optimizer=opt, loss='mae')
             if (self.num_of_gpu > 1):
-                DispNet = multi_gpu_model(DispNet, gpus = self.num_of_gpu)
+                FlowNet = multi_gpu_model(FlowNet, gpus = self.num_of_gpu)
             FlowNet.summary() 
             
             return FlowNet
@@ -513,7 +519,7 @@ class FlowNet(object):
             opt = Adam(lr=self.learning_rate)
             FlowNet.compile(optimizer=opt, loss='mae')
             if (self.num_of_gpu > 1):
-                DispNet = multi_gpu_model(DispNet, gpus = self.num_of_gpu)
+                FlowNet = multi_gpu_model(FlowNet, gpus = self.num_of_gpu)
             FlowNet.summary() 
             
             return FlowNet
