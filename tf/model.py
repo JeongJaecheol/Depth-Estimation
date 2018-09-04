@@ -276,11 +276,11 @@ class DispNet(object):
 
         prediction = loss1
         cost = tf.losses.mean_squared_error(ground_truth, prediction)
-        tf.summary.scalar('mean_squared_error', cost)
+        training_loss = tf.summary.scalar('training_loss', cost)
+        validation_loss = tf.summary.scalar('validation_loss', cost)
         train_step = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(cost)
-        ALLsummary = tf.summary.merge_all()
 
-        return train_step, cost, prediction, ALLsummary
+        return train_step, cost, prediction, training_loss, validation_loss
     
     def inference(self, left_image , right_image, ground_truth):            
         if self.mode == 'correlation_':
