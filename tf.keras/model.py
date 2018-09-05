@@ -396,37 +396,45 @@ class DispNet(object):
 
             DispNet = Model(inputs = [left_image, right_image], outputs = loss_list)
             opt = Adam(lr=self.learning_rate)
-            DispNet.compile(optimizer=opt, loss='mae', loss_weights=[1/2, 1/4, 1/8, 1/16, 1/32, 1/32])
             if (self.num_of_gpu > 1):
                 DispNet = multi_gpu_model(DispNet, gpus = self.num_of_gpu)
-            DispNet.summary() 
-            
-            return DispNet
+                DispNet.compile(optimizer=opt, loss='mae', loss_weights=[1/2, 1/4, 1/8, 1/16, 1/32, 1/32])
+                DispNet.summary() 
+                return DispNet
+            else:
+                DispNet.compile(optimizer=opt, loss='mae', loss_weights=[1/2, 1/4, 1/8, 1/16, 1/32, 1/32])
+                DispNet.summary() 
+                return DispNet
 
         if mode == 'correlation':
             loss_list = self.DispNetCorr(left_image, right_image)
 
             DispNet = Model(inputs = [left_image, right_image], outputs = loss_list)
-            #DispNet = multi_gpu_model(DispNet, gpus=2)
             opt = Adam(lr=self.learning_rate)
-            DispNet.compile(optimizer=opt, loss='mae', loss_weights=[1/2, 1/4, 1/8, 1/16, 1/32, 1/32])
             if (self.num_of_gpu > 1):
                 DispNet = multi_gpu_model(DispNet, gpus = self.num_of_gpu)
-            DispNet.summary() 
-            
-            return DispNet
+                DispNet.compile(optimizer=opt, loss='mae', loss_weights=[1/2, 1/4, 1/8, 1/16, 1/32, 1/32])
+                DispNet.summary() 
+                return DispNet
+            else:
+                DispNet.compile(optimizer=opt, loss='mae', loss_weights=[1/2, 1/4, 1/8, 1/16, 1/32, 1/32])
+                DispNet.summary() 
+                return DispNet
 
         if mode == 'correlation_':
             loss = self.DispNetCorr_(left_image, right_image)
 
             DispNet = Model(inputs = [left_image, right_image], outputs = loss)
+            opt = Adam(lr=self.learning_rate)
             if self.num_of_gpu > 1:
                 DispNet = multi_gpu_model(DispNet, gpus=self.num_of_gpu)
-            opt = Adam(lr=self.learning_rate)
-            DispNet.compile(optimizer=opt, loss='mae')
-            DispNet.summary() 
-            
-            return DispNet
+                DispNet.compile(optimizer=opt, loss='mae')
+                DispNet.summary() 
+                return DispNet
+            else:
+                DispNet.compile(optimizer=opt, loss='mae')
+                DispNet.summary() 
+                return DispNet
 
 class FlowNet(object):
     """
