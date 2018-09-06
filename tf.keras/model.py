@@ -17,8 +17,8 @@ class GCNet(object):
         self.img_height = img_height
         self.img_width = img_width
         self.img_depth = img_depth
-        self.disp_range = disp_range
         self.learning_rate = learning_rate
+        self.disp_range = disp_range
         self.num_of_gpu = num_of_gpu
 
         self.model_in_height = self.resize(img_height)
@@ -41,7 +41,7 @@ class GCNet(object):
     def SoftArgMax(self, x, height, width, disp_range):
         tmp = tf.squeeze(x, squeeze_dims=-1)
         softmax = tf.nn.softmax(-tmp)
-        disp_mat = tf.constant(list(map(lambda x: x, range(1, 192+1, 1))), shape=(192, 512, 960))
+        disp_mat = tf.constant(list(map(lambda x: x, range(1, self.disp_range+1, 1))), shape=(self.disp_range, self.model_in_height, self.model_in_width))
         disp_mat = tf.cast(disp_mat, tf.float32)
         result = tf.multiply(softmax, disp_mat)
         result = tf.reduce_sum(result, axis = 1)
@@ -147,14 +147,16 @@ class GCNet(object):
         r_disp_map = LearningRegularization(cv_r)
 
         GCNet = Model(inputs = [l_img , r_img], outputs = [l_disp_map, r_disp_map])
-
         opt = RMSprop(lr = self.learning_rate, rho = 0.9, epsilon = 0.00000001, decay = 0.0)
-        GCNet.compile(optimizer = opt, loss = "mean_absolute_error")
-        if (self.num_of_gpu > 1):
-            GCNet = multi_gpu_model(GCNet, gpus = self.num_of_gpu)
-        GCNet.summary() 
-
-        return GCNet
+        if self.num_of_gpu > 1:
+            GCNet = multi_gpu_model(GCNet, gpus=self.num_of_gpu)
+            GCNet.compile(optimizer=opt, loss='mae')
+            GCNet.summary()
+            return GCNet
+        else:
+            GCNet.compile(optimizer=opt, loss='mae')
+            GCNet.summary() 
+            return GCNet
 
 class DispNet(object):
     """
